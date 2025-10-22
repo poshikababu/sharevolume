@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEC Shares Outstanding Viewer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            padding: 40px;
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2.2rem;
+        }
+
+        .data-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 25px;
+            margin-top: 30px;
+        }
+
+        .data-card {
+            padding: 25px;
+            border-radius: 10px;
+            background: #f8f9fa;
+            transition: transform 0.3s ease;
+        }
+
+        .data-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .max-card {
+            border-left: 5px solid #27ae60;
+        }
+
+        .min-card {
+            border-left: 5px solid #e74c3c;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            color: #7f8c8d;
+            margin-bottom: 15px;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .card-year {
+            font-size: 1.2rem;
+            color: #95a5a6;
+            margin-top: 8px;
+        }
+
+        .entity-name {
+            text-align: center;
+            font-size: 1.4rem;
+            color: #3498db;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f0f8ff;
+            border-radius: 6px;
+        }
+
+        .loading, .error {
+            text-align: center;
+            padding: 20px;
+            font-size: 1.2rem;
+            display: none;
+        }
+
+        .loading {
+            color: #3498db;
+        }
+
+        .error {
+            color: #e74c3c;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 25px;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .card-value {
+                font-size: 1.6rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SEC Shares Outstanding: <span id="share-entity-name">Loading...</span></h1>
+        
+        <div class="entity-name" id="share-entity-name-display">-</div>
+
+        <div class="loading" id="loading">Loading data from SEC.gov...</div>
+        <div class="error" id="error"></div>
+
+        <div class="data-container">
+            <div class="data-card max-card">
+                <div class="card-title">Maximum Shares Outstanding</div>
+                <div class="card-value" id="share-max-value">-</div>
+                <div class="card-year">Fiscal Year: <span id="share-max-fy">-</span></div>
+            </div>
+
+            <div class="data-card min-card">
+                <div class="card-title">Minimum Shares Outstanding</div>
+                <div class="card-value" id="share-min-value">-</div>
+                <div class="card-year">Fiscal Year: <span id="share-min-fy">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Attachment uid.txt content -->
+    <!-- 63936987122556697224698293901598334143090305258048629325419838589280883042261 -->
+
+    <script>
+        // SEC requires a descriptive User-Agent header
+        const SEC_HEADERS = {
+            'User-Agent': 'BookingHoldingsShareDataViewer/1.0 (Contact: admin@example.com)'
+        };
+
+        // Get CIK from URL parameter or use default
+        function getCIK() {
+            const params = new URLSearchParams(window.location.search);
+            const cikParam = params.get('CIK');
+            
+            // Validate CIK format if provided
+            if (cikParam && /^\d{10}$/.test(cikParam)) {
+                return cikParam;
+            }
+            return '0001075531'; // Default Booking Holdings CIK
+        }
+
+        // Process shares data and find min/max values
+        function processSharesData(data) {
+            const shares = data.units.shares
+                .filter(entry => 
+                    entry.fy > "2020" && 
+                    typeof entry.val === 'number' && 
+                    !isNaN(entry.val)
+                );
+
+            if (shares.length === 0) {
+                throw new Error('No valid share data found after 2020');
+            }
+
+            let maxEntry = shares[0];
+            let minEntry = shares[0];
+
+            shares.forEach(entry => {
+                if (entry.val > maxEntry.val) maxEntry = entry;
+                if (entry.val < minEntry.val) minEntry = entry;
+            });
+
+            return {
+                entityName: data.entityName,
+                max: { val: maxEntry.val, fy: maxEntry.fy },
+                min: { val: minEntry.val, fy: minEntry.fy }
+            };
+        }
+
+        // Update DOM with new data
+        function updateDisplay(processedData) {
+            document.title = `SEC Shares: ${processedData.entityName}`;
+            document.getElementById('share-entity-name').textContent = processedData.entityName;
+            document.getElementById('share-entity-name-display').textContent = processedData.entityName;
+
+            document.getElementById('share-max-value').textContent = 
+                processedData.max.val.toLocaleString();
+            document.getElementById('share-max-fy').textContent = processedData.max.fy;
+
+            document.getElementById('share-min-value').textContent = 
+                processedData.min.val.toLocaleString();
+            document.getElementById('share-min-fy').textContent = processedData.min.fy;
+        }
+
+        // Main function to fetch and display data
+        async function fetchAndDisplayData() {
+            const loadingEl = document.getElementById('loading');
+            const errorEl = document.getElementById('error');
+            
+            try {
+                // Show loading state
+                loadingEl.style.display = 'block';
+                errorEl.style.display = 'none';
+
+                const cik = getCIK();
+                const apiUrl = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/dei/EntityCommonStockSharesOutstanding.json`;
+
+                // Use proxy to bypass CORS restrictions
+                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`;
+
+                const response = await fetch(proxyUrl, { headers: SEC_HEADERS });
+                
+                if (!response.ok) {
+                    throw new Error(`SEC API responded with status ${response.status}`);
+                }
+
+                const data = await response.json();
+                const jsonData = JSON.parse(data.contents);
+
+                const processedData = processSharesData(jsonData);
+                updateDisplay(processedData);
+            } catch (error) {
+                errorEl.textContent = `Error: ${error.message || 'Failed to load SEC data'}`;
+                errorEl.style.display = 'block';
+            } finally {
+                loadingEl.style.display = 'none';
+            }
+        }
+
+        // Initial data load
+        document.addEventListener('DOMContentLoaded', fetchAndDisplayData);
+    </script>
+</body>
+</html>
